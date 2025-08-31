@@ -1,0 +1,489 @@
+<script type="text/javascript">
+        var gk_isXlsx = false;
+        var gk_xlsxFileLookup = {};
+        var gk_fileData = {};
+        function filledCell(cell) {
+          return cell !== '' && cell != null;
+        }
+        function loadFileData(filename) {
+        if (gk_isXlsx && gk_xlsxFileLookup[filename]) {
+            try {
+                var workbook = XLSX.read(gk_fileData[filename], { type: 'base64' });
+                var firstSheetName = workbook.SheetNames[0];
+                var worksheet = workbook.Sheets[firstSheetName];
+
+                // Convert sheet to JSON to filter blank rows
+                var jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1, blankrows: false, defval: '' });
+                // Filter out blank rows (rows where all cells are empty, null, or undefined)
+                var filteredData = jsonData.filter(row => row.some(filledCell));
+
+                // Heuristic to find the header row by ignoring rows with fewer filled cells than the next row
+                var headerRowIndex = filteredData.findIndex((row, index) =>
+                  row.filter(filledCell).length >= filteredData[index + 1]?.filter(filledCell).length
+                );
+                // Fallback
+                if (headerRowIndex === -1 || headerRowIndex > 25) {
+                  headerRowIndex = 0;
+                }
+
+                // Convert filtered JSON back to CSV
+                var csv = XLSX.utils.aoa_to_sheet(filteredData.slice(headerRowIndex)); // Create a new sheet from filtered array of arrays
+                csv = XLSX.utils.sheet_to_csv(csv, { header: 1 });
+                return csv;
+            } catch (e) {
+                console.error(e);
+                return "";
+            }
+        }
+        return gk_fileData[filename] || "";
+        }
+        </script><!DOCTYPE html>
+<html lang="pt">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Show do Linking Words - Grupos</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background: linear-gradient(to right, #4facfe, #00f2fe);
+            color: #fff;
+            text-align: center;
+            padding: 20px;
+        }
+        #group_setup, #game {
+            max-width: 800px;
+            margin: 0 auto;
+            background: rgba(0, 0, 0, 0.5);
+            padding: 20px;
+            border-radius: 15px;
+        }
+        h1, h2 {
+            color: #ffd700;
+            text-shadow: 2px 2px 4px #000;
+        }
+        #group_setup input {
+            margin: 10px;
+            padding: 10px;
+            font-size: 16px;
+            border-radius: 5px;
+        }
+        #question {
+            font-size: 24px;
+            margin: 20px 0;
+            background: #fff;
+            color: #000;
+            padding: 15px;
+            border-radius: 10px;
+        }
+        #options button {
+            display: block;
+            width: 100%;
+            margin: 10px 0;
+            padding: 15px;
+            font-size: 18px;
+            background: #ffd700;
+            color: #000;
+            border: none;
+            border-radius: 10px;
+            cursor: pointer;
+            transition: background 0.3s;
+        }
+        #options button:hover {
+            background: #ffcc00;
+        }
+        #lifelines button {
+            margin: 10px;
+            padding: 10px 20px;
+            font-size: 16px;
+            background: #32cd32;
+            color: #fff;
+            border: none;
+            border-radius: 10px;
+            cursor: pointer;
+            transition: background 0.3s;
+        }
+        #lifelines button:hover {
+            background: #228b22;
+        }
+        #lifelines button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+        #god_mode {
+            margin: 20px 0;
+            padding: 10px 20px;
+            font-size: 16px;
+            background: #ff4500;
+            color: #fff;
+            border: none;
+            border-radius: 10px;
+            cursor: pointer;
+        }
+        #god_mode.active {
+            background: #adff2f;
+            color: #000;
+        }
+        #score, #timer, #leader {
+            font-size: 20px;
+            margin: 10px 0;
+        }
+        #message {
+            font-size: 18px;
+            margin: 20px 0;
+            color: #ffd700;
+        }
+        #restart {
+            display: none;
+            padding: 15px 30px;
+            font-size: 18px;
+            background: #1e90ff;
+            color: #fff;
+            border: none;
+            border-radius: 10px;
+            cursor: pointer;
+        }
+        #restart:hover {
+            background: #4169e1;
+        }
+        @media (max-width: 600px) {
+            #question { font-size: 18px; }
+            #options button { font-size: 16px; padding: 10px; }
+        }
+    </style>
+</head>
+<body>
+    <div id="group_setup">
+        <h2>Insira o nome do grupo:</h2>
+        <input type="text" id="group_name" placeholder="Nome do grupo">
+        <h2>Insira os nomes dos 5 jogadores:</h2>
+        <input type="text" id="player1" placeholder="Jogador 1">
+        <input type="text" id="player2" placeholder="Jogador 2">
+        <input type="text" id="player3" placeholder="Jogador 3">
+        <input type="text" id="player4" placeholder="Jogador 4">
+        <input type="text" id="player5" placeholder="Jogador 5">
+        <button onclick="startWithGroup()">Iniciar Jogo</button>
+    </div>
+    <div id="game" style="display: none;">
+        <h1>Show do Linking Words</h1>
+        <div id="question"></div>
+        <div id="options"></div>
+        <div id="lifelines">
+            <button id="pular">Pular (3 restantes)</button>
+            <button id="consultar">Consultar Caderno (1 restante)</button>
+            <button id="desistir">Desistir</button>
+        </div>
+        <button id="god_mode">Ativar God Mode</button>
+        <div id="score">Pontos: 0</div>
+        <div id="message"></div>
+        <button id="restart">Reiniciar Jogo</button>
+    </div>
+
+    <script>
+        const questions = [
+            {
+                question: "She studied hard _____ she passed the exam.",
+                options: ["a) but", "b) so", "c) or", "d) yet"],
+                correct: 1
+            },
+            {
+                question: "He is rica, _____ he is not happy.",
+                options: ["a) therefore", "b) because", "c) but", "d) so"],
+                correct: 2
+            },
+            {
+                question: "_____ it was raining, we went out.",
+                options: ["a) Although", "b) Because", "c) So", "d) But"],
+                correct: 0
+            },
+            {
+                question: "I will go to the party _____ you come with me.",
+                options: ["a) unless", "b) if", "c) so", "d) but"],
+                correct: 1
+            },
+            {
+                question: "She didn't study, _____ she failed.",
+                options: ["a) however", "b) therefore", "c) but", "d) and"],
+                correct: 1
+            },
+            {
+                question: "Do you want tea _____ coffee?",
+                options: ["a) and", "b) but", "c) or", "d) so"],
+                correct: 2
+            },
+            {
+                question: "He ran fast _____ he missed the bus.",
+                options: ["a) but", "b) so", "c) or", "d) because"],
+                correct: 0
+            },
+            {
+                question: "_____ he is old, he is strong.",
+                options: ["a) Because", "b) Although", "c) So", "d) Or"],
+                correct: 1
+            },
+            {
+                question: "I like apples _____ bananas.",
+                options: ["a) but", "b) or", "c) and", "d) so"],
+                correct: 2
+            },
+            {
+                question: "She was sick, _____ she went to work.",
+                options: ["a) yet", "b) because", "c) so", "d) if"],
+                correct: 0
+            },
+            {
+                question: "Take an umbrella _____ it rains.",
+                options: ["a) unless", "b) although", "c) in case", "d) but"],
+                correct: 2
+            },
+            {
+                question: "_____ the fact that he was tired, he continued working.",
+                options: ["a) Despite", "b) Because", "c) So", "d) Or"],
+                correct: 0
+            },
+            {
+                question: "He didn't come _____ he was invited.",
+                options: ["a) even though", "b) so", "c) but", "d) because"],
+                correct: 0
+            },
+            {
+                question: "Not only is she smart, _____ beautiful.",
+                options: ["a) but also", "b) or", "c) so", "d) because"],
+                correct: 0
+            },
+            {
+                question: "He worked hard; _____, he succeeded.",
+                options: ["a) however", "b) therefore", "c) but", "d) although"],
+                correct: 1
+            },
+            {
+                question: "_____ you apologize, I won't forgive you.",
+                options: ["a) Unless", "b) If", "c) So", "d) But"],
+                correct: 0
+            },
+            {
+                question: "The movie was long _____ boring.",
+                options: ["a) but", "b) or", "c) and", "d) so"],
+                correct: 2
+            },
+            {
+                question: "I can't go out _____ I have homework.",
+                options: ["a) although", "b) because", "c) so", "d) but"],
+                correct: 1
+            },
+            {
+                question: "_____ it was expensive, I bought it.",
+                options: ["a) Even though", "b) Because", "c) So", "d) Or"],
+                correct: 0
+            },
+            {
+                question: "He is neither rich _____ famous.",
+                options: ["a) or", "b) nor", "c) but", "d) so"],
+                correct: 1
+            }
+        ];
+
+        let shuffledQuestions;
+        let current = 0;
+        let score = 0;
+        let godMode = false;
+        let skipsLeft = 3;
+        let consultsLeft = 1;
+        let players = [];
+        let currentLeaderIndex = 0;
+        let groupScores = JSON.parse(localStorage.getItem('groupScores')) || [];
+
+        const groupSetup = document.getElementById('group_setup');
+        const gameDiv = document.getElementById('game');
+        const questionEl = document.getElementById('question');
+        const optionsEl = document.getElementById('options');
+        const scoreEl = document.getElementById('score');
+        const messageEl = document.getElementById('message');
+        const pularBtn = document.getElementById('pular');
+        const consultarBtn = document.getElementById('consultar');
+        const desistirBtn = document.getElementById('desistir');
+        const godModeBtn = document.getElementById('god_mode');
+        const restartBtn = document.getElementById('restart');
+
+        function shuffle(array) {
+            return array.sort(() => Math.random() - 0.5);
+        }
+
+        function startWithGroup() {
+            players = [
+                document.getElementById('player1').value || 'Jogador 1',
+                document.getElementById('player2').value || 'Jogador 2',
+                document.getElementById('player3').value || 'Jogador 3',
+                document.getElementById('player4').value || 'Jogador 4',
+                document.getElementById('player5').value || 'Jogador 5'
+            ];
+            const groupName = document.getElementById('group_name').value || 'Grupo Anônimo';
+            scoreEl.innerText = `${groupName} - Pontos: 0`;
+            groupSetup.style.display = 'none';
+            gameDiv.style.display = 'block';
+            startGame();
+        }
+
+        function startGame() {
+            shuffledQuestions = shuffle([...questions]);
+            current = 0;
+            score = 0;
+            godMode = false;
+            skipsLeft = 3;
+            consultsLeft = 1;
+            currentLeaderIndex = 0;
+            godModeBtn.classList.remove('active');
+            godModeBtn.innerText = 'Ativar God Mode';
+            updateLifelines();
+            scoreEl.innerText = `${document.getElementById('group_name').value || 'Grupo Anônimo'} - Pontos: ${score}`;
+            messageEl.innerText = '';
+            restartBtn.style.display = 'none';
+            loadQuestion();
+        }
+
+        function loadQuestion() {
+            if (current >= shuffledQuestions.length) {
+                endGame('Parabéns! Você completou todas as questões.');
+                return;
+            }
+            questionEl.innerHTML = shuffledQuestions[current].question;
+            optionsEl.innerHTML = '';
+            shuffledQuestions[current].options.forEach((opt, i) => {
+                const btn = document.createElement('button');
+                btn.innerText = opt;
+                btn.onclick = () => checkAnswer(i);
+                optionsEl.appendChild(btn);
+            });
+            messageEl.innerText = '';
+            updateLeader();
+            startTimer();
+            if (godMode) {
+                revealAnswer();
+            }
+        }
+
+        function updateLeader() {
+            const leaderEl = document.createElement('div');
+            leaderEl.id = 'leader';
+            leaderEl.style.fontSize = '18px';
+            leaderEl.style.margin = '10px';
+            leaderEl.innerText = `Líder atual: ${players[currentLeaderIndex]}`;
+            questionEl.appendChild(leaderEl);
+            currentLeaderIndex = (currentLeaderIndex + 1) % 5;
+        }
+
+        function startTimer() {
+            let timeLeft = 30;
+            const timerEl = document.createElement('div');
+            timerEl.id = 'timer';
+            timerEl.style.fontSize = '20px';
+            timerEl.style.margin = '10px';
+            timerEl.innerText = `Tempo restante: ${timeLeft}s`;
+            questionEl.appendChild(timerEl);
+            const timer = setInterval(() => {
+                timeLeft--;
+                timerEl.innerText = `Tempo restante: ${timeLeft}s`;
+                if (timeLeft <= 0) {
+                    clearInterval(timer);
+                    if (!godMode) {
+                        endGame('Tempo esgotado! Fim de jogo.');
+                    } else {
+                        current++;
+                        loadQuestion();
+                    }
+                }
+            }, 1000);
+        }
+
+        function checkAnswer(selected) {
+            const correct = shuffledQuestions[current].correct;
+            if (selected === correct) {
+                score++;
+                scoreEl.innerText = `${document.getElementById('group_name').value || 'Grupo Anônimo'} - Pontos: ${score}`;
+                messageEl.innerText = 'Correto!';
+                current++;
+                setTimeout(loadQuestion, 1000);
+            } else {
+                if (godMode) {
+                    messageEl.innerText = 'Errado! Tente novamente (sem punição no God Mode).';
+                } else {
+                    endGame('Errado! Fim de jogo.');
+                }
+            }
+        }
+
+        function revealAnswer() {
+            const buttons = optionsEl.querySelectorAll('button');
+            const correct = shuffledQuestions[current].correct;
+            buttons[correct].style.background = '#adff2f';
+        }
+
+        function endGame(msg) {
+            const groupName = document.getElementById('group_name').value || 'Grupo Anônimo';
+            groupScores.push({ name: groupName, score: score });
+            localStorage.setItem('groupScores', JSON.stringify(groupScores));
+            messageEl.innerHTML = `${msg} Pontos finais: ${score}<br>Ranking:<br>`;
+            groupScores.sort((a, b) => b.score - a.score).forEach((g, i) => {
+                messageEl.innerHTML += `${i + 1}. ${g.name}: ${g.score} pontos<br>`;
+            });
+            optionsEl.innerHTML = '';
+            questionEl.innerText = '';
+            pularBtn.disabled = true;
+            consultarBtn.disabled = true;
+            desistirBtn.disabled = true;
+            godModeBtn.disabled = true;
+            restartBtn.style.display = 'block';
+        }
+
+        function updateLifelines() {
+            pularBtn.innerText = `Pular (${skipsLeft} restantes)`;
+            consultarBtn.innerText = `Consultar Caderno (${consultsLeft} restantes)`;
+            pularBtn.disabled = skipsLeft <= 0;
+            consultarBtn.disabled = consultsLeft <= 0;
+        }
+
+        pularBtn.onclick = () => {
+            if (skipsLeft > 0) {
+                skipsLeft--;
+                current++;
+                updateLifelines();
+                loadQuestion();
+            }
+        };
+
+        consultarBtn.onclick = () => {
+            if (consultsLeft > 0) {
+                consultsLeft--;
+                const correct = shuffledQuestions[current].correct;
+                const indices = [0, 1, 2, 3].filter(i => i !== correct);
+                const toHide = shuffle(indices).slice(0, 2);
+                const buttons = optionsEl.querySelectorAll('button');
+                toHide.forEach(i => {
+                    buttons[i].style.display = 'none';
+                });
+                updateLifelines();
+            }
+        };
+
+        desistirBtn.onclick = () => {
+            endGame('Você desistiu.');
+        };
+
+        godModeBtn.onclick = () => {
+            godMode = !godMode;
+            godModeBtn.classList.toggle('active');
+            godModeBtn.innerText = godMode ? 'Desativar God Mode' : 'Ativar God Mode';
+            if (godMode) {
+                revealAnswer();
+            } else {
+                loadQuestion();
+            }
+        };
+
+        restartBtn.onclick = () => {
+            groupSetup.style.display = 'block';
+            gameDiv.style.display = 'none';
+        };
+    </script>
+</body>
+</html>
